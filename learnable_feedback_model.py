@@ -106,9 +106,7 @@ def model_fn(input_pipieline):
 
         input_size = 28
 
-        hidden_layer_size = 128
-
-        num_classes = 3
+        num_classes = 2
 
         # TODO: Alternatively, build a FE for each input then concat those.
         x = tf.concat(values=[altitude_image,
@@ -116,89 +114,197 @@ def model_fn(input_pipieline):
                               longitude_image],
                       axis=3)
 
-        x = conv_block(input_feature_map=x,
-                       filter_height=3,
-                       filter_width=3,
-                       in_channels=3,
-                       out_channels=8,
-                       stride=2,
-                       name="conv_block_1",
-                       padding='SAME',
-                       batch_normalization=False)
+        with tf.variable_scope("feature_extractor"):
 
-        output_size = compute_output_size(input_size,
-                                          filter_size=3,
-                                          padding='SAME',
-                                          stride=2)
+            x = conv_block(input_feature_map=x,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=3,
+                           out_channels=8,
+                           stride=2,
+                           name="conv_block_1",
+                           padding='SAME',
+                           batch_normalization=False)
 
-        print(output_size)
+            output_size = compute_output_size(input_size,
+                                              filter_size=3,
+                                              padding='SAME',
+                                              stride=2)
 
-        x = conv_block(input_feature_map=x,
-                       filter_height=3,
-                       filter_width=3,
-                       in_channels=8,
-                       out_channels=16,
-                       stride=1,
-                       name="conv_block_2",
-                       padding='SAME',
-                       batch_normalization=False)
+            print(output_size)
 
-        output_size = compute_output_size(output_size,
-                                          filter_size=3,
-                                          padding='SAME',
-                                          stride=1)
+            x = conv_block(input_feature_map=x,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=8,
+                           out_channels=16,
+                           stride=1,
+                           name="conv_block_2",
+                           padding='SAME',
+                           batch_normalization=False)
 
-        print(output_size)
+            output_size = compute_output_size(output_size,
+                                              filter_size=3,
+                                              padding='SAME',
+                                              stride=1)
 
-        conv_size = int(output_size * output_size * 16)
+            print(output_size)
 
-        # Classification head.
-        conv2_flat = tf.reshape(x,
-                                shape=[-1, conv_size],
-                                name="flatten_ofmap_reshape")
+            # conv_size = int(output_size * output_size * 16)
 
-        D_W1 = tf.get_variable(name="D_W1",
-                               initializer=xavier_initialized_matrix([conv_size,
-                                                                      hidden_layer_size]))
+            feature_map = x
 
-        D_b1 = tf.get_variable(name="D_b1",
-                               initializer=tf.zeros([hidden_layer_size]))
+        # with tf.variable_scope("flattener"):
 
-        h = tf.nn.relu(tf.matmul(conv2_flat, D_W1) + D_b1)
+        #     conv2_flat = tf.reshape(x,
+        #                             shape=[-1, conv_size],
+        #                             name="flatten_ofmap_reshape")
 
-        D_W2 = tf.get_variable(name="D_W2",
-                               initializer=xavier_initialized_matrix([hidden_layer_size,
-                                                                      num_classes]))
+        with tf.variable_scope("classification_head"):
 
-        # D_b2 = tf.get_variable(name="D_b2",
-        #                        initializer=tf.zeros([hidden_layer_size, num_classes]))
+            x = conv_block(input_feature_map=feature_map,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=16,
+                           out_channels=16,
+                           stride=1,
+                           name="conv_block_1",
+                           padding='SAME',
+                           batch_normalization=False)
 
-        class_logit = tf.matmul(h, D_W2)
-        # logit = logit + D_b2
+            x = conv_block(input_feature_map=x,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=16,
+                           out_channels=16,
+                           stride=1,
+                           name="conv_block_2",
+                           padding='SAME',
+                           batch_normalization=False)
 
-        # prob = tf.nn.sigmoid(logit)
+            x = conv_block(input_feature_map=x,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=16,
+                           out_channels=16,
+                           stride=1,
+                           name="conv_block_3",
+                           padding='SAME',
+                           batch_normalization=False)
 
-        # Regression head.
-        conv2_flat = tf.reshape(x, shape=[-1, conv_size], name="flatten_ofmap_reshape")
+            x = conv_block(input_feature_map=x,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=16,
+                           out_channels=num_classes,
+                           stride=1,
+                           name="conv_block_4",
+                           padding='SAME',
+                           batch_normalization=False)
 
-        reg_head_W1 = tf.get_variable(name="reg_head_W1",
-                                      initializer=xavier_initialized_matrix([conv_size,
-                                                                             hidden_layer_size]))
+            class_logit = tf.reduce_mean(x, axis=[1, 2])
 
-        reg_head_b1 = tf.get_variable(name="reg_head_b1",
-                                      initializer=tf.zeros([hidden_layer_size]))
+            for class_id in range(num_classes):
 
-        h = tf.nn.relu(tf.matmul(conv2_flat, reg_head_W1) + reg_head_b1)
+                heatmap = tf.expand_dims(x[:, :, :, class_id], -1)
 
-        reg_head_W2 = tf.get_variable(name="reg_head_W2",
-                                      initializer=xavier_initialized_matrix([hidden_layer_size,
-                                                                             1]))
+                print(heatmap.shape)
 
-        # reg_head_b2 = tf.get_variable(name="reg_head_b2",
-        #                               initializer=tf.zeros([hidden_layer_size, num_classes]))
+                tf.summary.image('class_' + str(class_id) + '_heatmap',
+                                 heatmap[:, :, :, :1],
+                                 max_outputs=4)
 
-        reg_score = tf.matmul(h, reg_head_W2)
-        # logit = logit + D_b2
+            # reg_score = tf.reduce_mean(x)
+
+            # D_W1 = tf.get_variable(name="D_W1",
+            #                        initializer=xavier_initialized_matrix([conv_size,
+            #                                                               hidden_layer_size]))
+
+            # D_b1 = tf.get_variable(name="D_b1",
+            #                        initializer=tf.zeros([hidden_layer_size]))
+
+            # h = tf.nn.relu(tf.matmul(conv2_flat, D_W1) + D_b1)
+
+            # D_W2 = tf.get_variable(name="D_W2",
+            #                        initializer=xavier_initialized_matrix([hidden_layer_size,
+            #                                                               num_classes]))
+
+            # # D_b2 = tf.get_variable(name="D_b2",
+            # #                        initializer=tf.zeros([hidden_layer_size, num_classes]))
+
+            # class_logit = tf.matmul(h, D_W2)
+            # # logit = logit + D_b2
+
+            # prob = tf.nn.sigmoid(logit)
+
+        with tf.variable_scope("score_head"):
+
+            x = conv_block(input_feature_map=feature_map,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=16,
+                           out_channels=16,
+                           stride=1,
+                           name="conv_block_1",
+                           padding='SAME',
+                           batch_normalization=False)
+
+            x = conv_block(input_feature_map=x,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=16,
+                           out_channels=16,
+                           stride=1,
+                           name="conv_block_2",
+                           padding='SAME',
+                           batch_normalization=False)
+
+            x = conv_block(input_feature_map=x,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=16,
+                           out_channels=16,
+                           stride=1,
+                           name="conv_block_3",
+                           padding='SAME',
+                           batch_normalization=False)
+
+            x = conv_block(input_feature_map=x,
+                           filter_height=3,
+                           filter_width=3,
+                           in_channels=16,
+                           out_channels=1,
+                           stride=1,
+                           name="conv_block_4",
+                           padding='SAME',
+                           batch_normalization=False)
+
+            # x = tf.nn.sigmoid(x)
+
+            tf.summary.image('score_heatmap',
+                             x[:, :, :, :3],
+                             max_outputs=4)
+
+            reg_score = tf.reduce_mean(x)
+
+            # reg_head_W1 = tf.get_variable(name="reg_head_W1",
+            #                               initializer=xavier_initialized_matrix([conv_size,
+            #                                                                      hidden_layer_size]))
+
+            # reg_head_b1 = tf.get_variable(name="reg_head_b1",
+            #                               initializer=tf.zeros([hidden_layer_size]))
+
+            # h = tf.nn.relu(tf.matmul(conv2_flat, reg_head_W1) + reg_head_b1)
+
+            # reg_head_W2 = tf.get_variable(name="reg_head_W2",
+            #                               initializer=xavier_initialized_matrix([hidden_layer_size,
+            #                                                                      1]))
+
+            # # reg_head_b2 = tf.get_variable(name="reg_head_b2",
+            # #                               initializer=tf.zeros([hidden_layer_size, num_classes]))
+
+            # reg_score = tf.matmul(h, reg_head_W2)
+            # logit = logit + D_b2
 
         # prob = tf.nn.sigmoid(logit)
 
@@ -207,36 +313,44 @@ def model_fn(input_pipieline):
 
 def class_loss_fn(model_output_class, target_class):
 
-    model_output_class_print_op = tf.print("model_output_class: ",
-                                           model_output_class)
-    target_class_print_op = tf.print("target_class: ",
-                                     target_class)
+    with tf.variable_scope("class_loss"):
 
-    # model_output_class, target_class
-    with tf.control_dependencies([model_output_class_print_op,
-                                  target_class_print_op]):
+        model_output_class_print_op = tf.print("\nmodel_output_class: ",
+                                               model_output_class)
+        target_class_print_op = tf.print("\ntarget_class: ",
+                                         target_class)
 
-        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            logits=model_output_class,
-            labels=target_class)
+        # model_output_class, target_class
+        with tf.control_dependencies([model_output_class_print_op,
+                                      target_class_print_op]):
+
+            loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                logits=model_output_class,
+                labels=target_class)
+
+        tf.summary.scalar('sum_class_loss', tf.reduce_sum(loss))
 
     return(loss)
 
 
 def reg_loss_fn(model_output_score, target_score):
 
-    model_output_score_print_op = tf.print("model_output_score: ",
-                                           model_output_score)
+    with tf.variable_scope("score_loss"):
 
-    target_score_print_op = tf.print("target_score: ",
-                                     target_score)
+        model_output_score_print_op = tf.print("\nmodel_output_score: ",
+                                               model_output_score)
 
-    # model_output_class, target_class
-    with tf.control_dependencies([model_output_score_print_op,
-                                  target_score_print_op]):
+        target_score_print_op = tf.print("\ntarget_score: ",
+                                         target_score)
 
-        loss = tf.losses.mean_squared_error(predictions=model_output_score,
-                                            labels=[target_score])
+        # model_output_class, target_class
+        with tf.control_dependencies([model_output_score_print_op,
+                                      target_score_print_op]):
+
+            loss = tf.losses.mean_squared_error(predictions=[model_output_score],
+                                                labels=target_score)
+
+        tf.summary.scalar('sum_reg_loss', tf.reduce_sum(loss))
 
     return(loss)
 
@@ -249,20 +363,39 @@ def ptnltf_model(data_pipeline, model, class_loss_fn, reg_loss_fn):
      class_label,
      score) = data_pipeline
 
-    # Add summaries to the graph for instrumentation.
-    tf.summary.image('real_images',
-                     altitude_image[:, :, :, :3],
-                     max_outputs=4)
+    with tf.variable_scope("image_summaries"):
+
+        # Add summaries to the graph for instrumentation.
+        tf.summary.image('altitude_image',
+                         altitude_image[:, :, :, :3],
+                         max_outputs=4)
+        tf.summary.image('latitude_image',
+                         latitude_image[:, :, :, :3],
+                         max_outputs=4)
+        tf.summary.image('longitude_image',
+                         longitude_image[:, :, :, :3],
+                         max_outputs=4)
 
     model_output_class, model_output_score = model(data_pipeline)
 
-    class_loss = class_loss_fn(model_output_class, class_label)
+    with tf.variable_scope("loss"):
 
-    score_loss = reg_loss_fn(model_output_score, score)
+        class_loss = class_loss_fn(model_output_class, class_label)
 
-    loss = class_loss + score_loss
+        class_loss_print_op = tf.print("\nclass_loss: ", class_loss)
 
-    optimizer_op = tf.train.AdamOptimizer(1e-4).minimize(loss)
+        score_loss = reg_loss_fn(model_output_score, score)
+
+        score_loss_print_op = tf.print("\nscore_loss: ", score_loss)
+
+        with tf.control_dependencies([class_loss_print_op,
+                                      score_loss_print_op]):
+
+            loss = class_loss + (10 * score_loss)
+
+    with tf.variable_scope("optimizer"):
+
+        optimizer_op = tf.train.AdamOptimizer(1e-4).minimize(loss)
 
     return(optimizer_op)
 
@@ -272,20 +405,22 @@ def train(FLAGS):
     train_tfrecord_name = os.path.join(FLAGS.dataset_path,
                                        FLAGS.train_tfrecord)
 
-    # Instantiate a wrapper for the dataset generation process.
-    # Potential problem: this encoding fn is casting all data to floats...
-    train_generator = DatasetGenerator(train_tfrecord_name,
-                                       num_channels=FLAGS.num_channels,
-                                       augment=FLAGS.augment_train_data,
-                                       shuffle=FLAGS.shuffle_train_data,
-                                       batch_size=FLAGS.batch_size,
-                                       num_threads=FLAGS.num_dataset_threads,
-                                       buffer=FLAGS.dataset_buffer_size,
-                                       encoding_function=cast_pntltf)
+    with tf.variable_scope("data_pipeline"):
 
-    train_iterator = train_generator.dataset.make_initializable_iterator()
+        # Instantiate a wrapper for the dataset generation process.
+        # Potential problem: this encoding fn is casting all data to floats...
+        train_generator = DatasetGenerator(train_tfrecord_name,
+                                           num_channels=FLAGS.num_channels,
+                                           augment=FLAGS.augment_train_data,
+                                           shuffle=FLAGS.shuffle_train_data,
+                                           batch_size=FLAGS.batch_size,
+                                           num_threads=FLAGS.num_dataset_threads,
+                                           buffer=FLAGS.dataset_buffer_size,
+                                           encoding_function=cast_pntltf)
 
-    data_pipeline = train_iterator.get_next()
+        train_iterator = train_generator.dataset.make_initializable_iterator()
+
+        data_pipeline = train_iterator.get_next()
 
     train_op = ptnltf_model(data_pipeline,
                             model_fn,
@@ -295,8 +430,12 @@ def train(FLAGS):
     merge_op = tf.summary.merge_all()
 
     train_writer = tf.summary.FileWriter(
-        os.path.join("./tensorboard/", '{}_train'.format("minimal_gan")),
+        os.path.join("./tensorboard/", '{}_train'.format(FLAGS.name)),
         graph=tf.get_default_graph())
+
+    # Instantiate a saver.
+    saver = tf.train.Saver()
+
     # train_writer = tf.summary.FileWriter(
     #     os.path.join("./tensorboard/",
     #                  '{}_train_{}'.format("minimal_gan",
@@ -315,6 +454,8 @@ def train(FLAGS):
         # Run the main training loop.
         for epoch in range(FLAGS.num_epochs):
 
+            print("\n=============\nEpoch: " + str(epoch) + "\n============\n")
+
             sess.run(train_iterator.initializer)
 
             epoch_step = 0
@@ -322,13 +463,7 @@ def train(FLAGS):
             # Until the training iterator is exhausted...
             while True:
 
-                print("\n\n\nEpoch step: " + str(epoch_step) + "\n\n\n")
-
-                # if epoch_step % 4 == 0:
-
-                #     summary = sess.run(merge_op)
-
-                #     train_writer.add_summary(summary, global_step)
+                print("\nEpoch step: " + str(epoch_step) + "\n")
 
                 try:
 
@@ -346,73 +481,23 @@ def train(FLAGS):
 
                     print('End of epoch: ' + str(epoch))
 
+                    if epoch_step % 128 == 0:
+
+                        summary = sess.run(merge_op)
+
+                        train_writer.add_summary(summary, global_step)
+
+
+                        ckpt_path = os.path.join(FLAGS.checkpoint_dir,
+                                                 '{}_last.ckpt'.format(FLAGS.name))
+
+                        save_path = saver.save(sess,
+                                               ckpt_path,
+                                               global_step=epoch)
+
+                        print('Model saved to: ', save_path)
+
                     break
-
-    # # Instantiate a saver.
-    # saver = tf.train.Saver()
-
-    # # TODO: Create your model here - it must provide an input_handle attribute.
-    # class Model(object):
-    #     def __init__(self):
-    #         model.input = None
-
-    # model = Model()
-
-    # # Create a session.
-    # with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-    #                                       log_device_placement=False)) as sess:
-
-    #     # Initialize global and local variables.
-    #     sess.run(tf.global_variables_initializer())
-    #     sess.run(tf.local_variables_initializer())
-
-    #     # Get the handles for the data iterator.
-    #     train_handle = sess.run(train_iterator.string_handle())
-
-    #     # Map the training data pipeline to the input placeholder handle.
-    #     feed_dict = {model.input_handle: train_handle}
-
-
-    #     # If a restore path has been given...
-    #     if FLAGS.restore_path:
-
-    #         # ...Instantiate a saver...
-    #         new_saver = tf.train.import_meta_graph('{}.meta'.format(FLAGS.restore_path))
-
-    #         # ...and use it to restore a graph from the path given.
-    #         new_saver.restore(sess, FLAGS.restore_path)
-    #         print('{} restored.'.format(FLAGS.restore_path))
-
-    #     # Run the main training loop.
-    #     for epoch in range(FLAGS.num_epochs):
-
-    #         # Until the training iterator is exhausted...
-    #         while True:
-    #             try:
-
-
-    #             except tf.errors.OutOfRangeError:
-    #                 print('End of epoch: ' + str(epoch))
-    #                 break
-
-    #             # In case of keyboard interrupt, save the current model.
-    #             except KeyboardInterrupt:
-
-    #                 ckpt_path = os.path.join(directories.checkpoints,
-    #                                          '{}_last.ckpt'.format(FLAGS.name))
-
-    #                 save_path = saver.save(sess,
-    #                                        ckpt_path,
-    #                                        global_step=epoch)
-    #                 print('Interrupted, model saved to: ', save_path)
-    #                 sys.exit()
-
-    #     ckpt_path = os.path.join(directories.checkpoints,
-    #                              '{}_endckpt'.format(FLAGS.name))
-
-    #     save_path = saver.save(sess, ckpt_path, global_step=epoch)
-
-    # print("Training Complete. Model saved to file: {} Time elapsed: {:.3f} s".format(save_path, time.time()-start_time))
 
 
 def main(**kwargs):
@@ -420,6 +505,10 @@ def main(**kwargs):
     parser = argparse.ArgumentParser()
 
     # Set arguments and their default values
+    parser.add_argument('--name', type=str,
+                        default="ipnetv0",
+                        help='Name of this model.')
+
     parser.add_argument('--dataset_path', type=str,
                         default="C:\\research\\ptn-ltf\\data\\tfrecords\\",
                         help='Path to the training TFRecord file.')
@@ -436,12 +525,16 @@ def main(**kwargs):
                         default="ptnltf_0.tfrecords",
                         help='Name of the testing TFRecord file.')
 
+    parser.add_argument('--checkpoint_dir', type=str,
+                        default="C:\\research\\ptn-ltf\\checkpoints\\",
+                        help='Path to the training TFRecord file.')
+
     parser.add_argument('--dataset_buffer_size', type=int,
-                        default=128,
+                        default=512,
                         help='Number of images to prefetch in the input pipeline.')
 
     parser.add_argument('--num_epochs', type=int,
-                        default=128,
+                        default=512,
                         help='Number of training epochs to run')
 
     parser.add_argument('--num_channels', type=int,

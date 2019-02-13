@@ -1,0 +1,6 @@
+model_checkpoint_path: "C:\\research\\ptn-ltf\\checkpoints\\ipnetv0_last.ckpt-791"
+all_model_checkpoint_paths: "C:\\research\\ptn-ltf\\checkpoints\\ipnetv0_last.ckpt-787"
+all_model_checkpoint_paths: "C:\\research\\ptn-ltf\\checkpoints\\ipnetv0_last.ckpt-788"
+all_model_checkpoint_paths: "C:\\research\\ptn-ltf\\checkpoints\\ipnetv0_last.ckpt-789"
+all_model_checkpoint_paths: "C:\\research\\ptn-ltf\\checkpoints\\ipnetv0_last.ckpt-790"
+all_model_checkpoint_paths: "C:\\research\\ptn-ltf\\checkpoints\\ipnetv0_last.ckpt-791"
